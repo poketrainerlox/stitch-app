@@ -19,19 +19,30 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAuthRepository(): AuthRepository = AuthRepository()
+    fun provideAuthRepository(
+        @ApplicationContext context: Context
+    ): AuthRepository = AuthRepository(context)
 
     @Provides
     @Singleton
-    fun provideFriendsRepository(): FriendsRepository = FriendsRepository()
+    fun provideFriendsRepository(
+        @ApplicationContext context: Context,
+        authRepository: AuthRepository
+    ): FriendsRepository = FriendsRepository(context, authRepository)
 
     @Provides
     @Singleton
-    fun providePactsRepository(): PactsRepository = PactsRepository()
+    fun providePactsRepository(
+        @ApplicationContext context: Context,
+        authRepository: AuthRepository
+    ): PactsRepository = PactsRepository(context, authRepository)
 
     @Provides
     @Singleton
-    fun provideScheduleRepository(): ScheduleRepository = ScheduleRepository()
+    fun provideScheduleRepository(
+        @ApplicationContext context: Context,
+        authRepository: AuthRepository
+    ): ScheduleRepository = ScheduleRepository(context, authRepository)
 
     @Provides
     @Singleton

@@ -62,6 +62,11 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun continueAsGuest() {
+        authRepository.continueAsGuest()
+        _uiState.value = _uiState.value.copy(isSuccess = true)
+    }
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }

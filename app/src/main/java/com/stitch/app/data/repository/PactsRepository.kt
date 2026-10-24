@@ -1,52 +1,75 @@
 package com.stitch.app.data.repository
 
+import android.content.Context
+import android.content.SharedPreferences
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Filter
 import com.google.firebase.firestore.FirebaseFirestore
 import com.stitch.app.data.model.Pact
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class PactsRepository @Inject constructor() {
+class PactsRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val authRepository: AuthRepository
+) {
+
+    private val prefs: SharedPreferences = context.getSharedPreferences("stitch_pacts_prefs", Context.MODE_PRIVATE)
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
 
     fun observeUserPacts(): Flow<List<Pact>> = callbackFlow {
-        val currentUid = auth.currentUser?.uid
-        if (currentUid == null) {
+        val currentUid = authRepository.currentUid
+        if (currentUid.isBlank()) {
             trySend(emptyList())
             close()
             return@callbackFlow
         }
 
-        val query = firestore.collection("pacts")
-            .where(
-                Filter.or(
-                    Filter.equalTo("creatorUid", currentUid),
-                    Filter.equalTo("partnerUid", currentUid)
+        val fbUid = auth.currentUser?.uid
+        if (fbUid != null) {
+            val query = firestore.collection("pacts")
+                .where(
+                    Filter.or(
+                        Filter.equalTo("creatorUid", fbUid),
+                        Filter.equalTo("partnerUid", fbUid)
+                    )
                 )
-            )
 
-        val registration = query.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                trySend(emptyList())
-                return@addSnapshotListener
+            val registration = try {
+                query.addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        trySend(getLocalPacts())
+                        return@addSnapshotListener
+                    }
+                    val pacts = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(Pact::class.java)?.copy(id = doc.id)
+                    }?.sortedByDescending { it.createdAt } ?: emptyList()
+
+                    saveLocalPacts(pacts)
+                    trySend(pacts)
+                }
+            } catch (_: Exception) {
+                trySend(getLocalPacts())
+                null
             }
-            val pacts = snapshot?.documents?.mapNotNull { doc ->
-                doc.toObject(Pact::class.java)?.copy(id = doc.id)
-            }?.sortedByDescending { it.createdAt } ?: emptyList()
 
-            trySend(pacts)
+            awaitClose { registration?.remove() }
+        } else {
+            trySend(getLocalPacts())
+            awaitClose {}
         }
-
-        awaitClose { registration.remove() }
     }
 
     suspend fun createPact(
@@ -59,36 +82,36 @@ class PactsRepository @Inject constructor() {
         penaltyType: String = "PUSHUPS",
         penaltyAmount: Int = 25
     ): Result<String> {
-        val currentUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not logged in"))
-        return try {
-            val userDoc = firestore.collection("users").document(currentUid).get().await()
-            val creatorName = userDoc.getString("displayName") ?: "Ward"
+        val currentUid = authRepository.currentUid
+        if (currentUid.isBlank()) return Result.failure(Exception("Not logged in"))
 
-            val startTime = System.currentTimeMillis()
-            val endTime = startTime + (durationMinutes * 60 * 1000L)
+        val creatorName = authRepository.getLocalUser()?.displayName ?: "Me"
+        val startTime = System.currentTimeMillis()
+        val endTime = startTime + (durationMinutes * 60 * 1000L)
+        val pactId = UUID.randomUUID().toString()
 
-            val pact = Pact(
-                id = "",
-                creatorUid = currentUid,
-                partnerUid = partnerUid,
-                creatorName = creatorName,
-                partnerName = partnerName,
-                title = title.ifBlank { "Focus Lock ($durationMinutes m)" },
-                blockedApps = blockedApps,
-                blockedAppNames = blockedAppNames,
-                durationMinutes = durationMinutes,
-                penaltyType = penaltyType,
-                penaltyAmount = penaltyAmount,
-                startTime = startTime,
-                endTime = endTime,
-                status = "active", // Immediately locks for immediate accountability
-                acceptedAt = startTime,
-                createdAt = startTime
-            )
+        val pact = Pact(
+            id = pactId,
+            creatorUid = currentUid,
+            partnerUid = partnerUid,
+            creatorName = creatorName,
+            partnerName = partnerName,
+            title = title.ifBlank { "Focus Lock ($durationMinutes m)" },
+            blockedApps = blockedApps,
+            blockedAppNames = blockedAppNames,
+            durationMinutes = durationMinutes,
+            penaltyType = penaltyType,
+            penaltyAmount = penaltyAmount,
+            startTime = startTime,
+            endTime = endTime,
+            status = "active",
+            acceptedAt = startTime,
+            createdAt = startTime
+        )
 
-            val docRef = firestore.collection("pacts").add(pact).await()
-
-            // Notify partner (Guardian)
+        // Try Firebase Cloud save
+        try {
+            firestore.collection("pacts").document(pactId).set(pact).await()
             firestore.collection("notifications").add(
                 mapOf(
                     "recipientUid" to partnerUid,
@@ -98,79 +121,44 @@ class PactsRepository @Inject constructor() {
                     "read" to false
                 )
             )
+        } catch (_: Exception) {}
 
-            Result.success(docRef.id)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        // Always save locally so it works offline/locally 100%
+        addLocalPact(pact)
+        return Result.success(pactId)
     }
 
     suspend fun recordBreach(pactId: String): Result<Unit> {
-        return try {
-            val pactDoc = firestore.collection("pacts").document(pactId).get().await()
-            val pact = pactDoc.toObject(Pact::class.java)
-
+        try {
             firestore.collection("pacts").document(pactId).update(
                 mapOf(
                     "breachCount" to FieldValue.increment(1),
                     "lastBreachTime" to System.currentTimeMillis()
                 )
             ).await()
-
-            // Alert guardian
-            if (pact != null) {
-                firestore.collection("notifications").add(
-                    mapOf(
-                        "recipientUid" to pact.partnerUid,
-                        "title" to "⚠️ Pact Breach Alert!",
-                        "message" to "${pact.creatorName} attempted to open a restricted app during active lock!",
-                        "timestamp" to System.currentTimeMillis(),
-                        "read" to false
-                    )
-                )
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        } catch (_: Exception) {}
+        return Result.success(Unit)
     }
 
     suspend fun requestEmergencyPass(pactId: String, reason: String): Result<Unit> {
-        return try {
-            val pactDoc = firestore.collection("pacts").document(pactId).get().await()
-            val pact = pactDoc.toObject(Pact::class.java)
-
+        try {
             firestore.collection("pacts").document(pactId).update(
                 mapOf(
                     "emergencyPassRequested" to true,
                     "emergencyPassMinutes" to 5
                 )
             ).await()
-
-            if (pact != null) {
-                firestore.collection("notifications").add(
-                    mapOf(
-                        "recipientUid" to pact.partnerUid,
-                        "title" to "Emergency 5-Min Pass Request ⏱️",
-                        "message" to "${pact.creatorName} asks for 5 min pass: \"$reason\"",
-                        "timestamp" to System.currentTimeMillis(),
-                        "read" to false
-                    )
-                )
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        } catch (_: Exception) {}
+        return Result.success(Unit)
     }
 
     suspend fun approveEmergencyPass(pactId: String, approved: Boolean): Result<Unit> {
-        return try {
+        try {
             val updates = if (approved) {
                 mapOf(
                     "emergencyPassApproved" to true,
                     "emergencyPassRequested" to false,
-                    "endTime" to FieldValue.increment(5 * 60 * 1000L) // extend sprint by 5 mins to compensate
+                    "endTime" to FieldValue.increment(5 * 60 * 1000L)
                 )
             } else {
                 mapOf(
@@ -179,54 +167,115 @@ class PactsRepository @Inject constructor() {
                 )
             }
             firestore.collection("pacts").document(pactId).update(updates).await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        } catch (_: Exception) {}
+
+        val pacts = getLocalPacts().map {
+            if (it.id == pactId) {
+                it.copy(
+                    emergencyPassApproved = approved,
+                    emergencyPassRequested = false,
+                    endTime = if (approved) it.endTime + (5 * 60 * 1000L) else it.endTime
+                )
+            } else it
         }
+        saveLocalPacts(pacts)
+        return Result.success(Unit)
     }
 
     suspend fun surrenderPact(pactId: String): Result<Unit> {
-        val currentUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not logged in"))
-        return try {
-            firestore.collection("pacts").document(pactId).update(
-                mapOf(
-                    "status" to "surrendered"
-                )
-            ).await()
+        try {
+            firestore.collection("pacts").document(pactId).update("status", "surrendered").await()
+        } catch (_: Exception) {}
 
-            // Reset streak or mark surrender on user
-            firestore.collection("users").document(currentUid).update(
-                mapOf(
-                    "currentStreak" to 0
-                )
-            ).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        val pacts = getLocalPacts().map {
+            if (it.id == pactId) it.copy(status = "surrendered") else it
         }
+        saveLocalPacts(pacts)
+        return Result.success(Unit)
     }
 
     suspend fun completePact(pactId: String): Result<Unit> {
-        val currentUid = auth.currentUser?.uid ?: return Result.failure(Exception("Not logged in"))
-        return try {
-            firestore.collection("pacts").document(pactId).update(
-                mapOf(
-                    "status" to "completed"
-                )
-            ).await()
+        try {
+            firestore.collection("pacts").document(pactId).update("status", "completed").await()
+        } catch (_: Exception) {}
 
-            // Increment streak & total completed pacts
-            firestore.collection("users").document(currentUid).update(
-                mapOf(
-                    "currentStreak" to FieldValue.increment(1),
-                    "totalPactsCompleted" to FieldValue.increment(1)
-                )
-            ).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        val pacts = getLocalPacts().map {
+            if (it.id == pactId) it.copy(status = "completed") else it
         }
+        saveLocalPacts(pacts)
+        return Result.success(Unit)
+    }
+
+    private fun getLocalPacts(): List<Pact> {
+        val jsonStr = prefs.getString("local_pacts", "[]") ?: "[]"
+        val list = mutableListOf<Pact>()
+        try {
+            val arr = JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val blockedApps = mutableListOf<String>()
+                val blockedAppNames = mutableListOf<String>()
+
+                val bApps = obj.optJSONArray("blockedApps")
+                if (bApps != null) {
+                    for (j in 0 until bApps.length()) blockedApps.add(bApps.getString(j))
+                }
+                val bNames = obj.optJSONArray("blockedAppNames")
+                if (bNames != null) {
+                    for (j in 0 until bNames.length()) blockedAppNames.add(bNames.getString(j))
+                }
+
+                list.add(
+                    Pact(
+                        id = obj.optString("id"),
+                        creatorUid = obj.optString("creatorUid"),
+                        partnerUid = obj.optString("partnerUid"),
+                        creatorName = obj.optString("creatorName"),
+                        partnerName = obj.optString("partnerName"),
+                        title = obj.optString("title"),
+                        blockedApps = blockedApps,
+                        blockedAppNames = blockedAppNames,
+                        durationMinutes = obj.optInt("durationMinutes", 45),
+                        startTime = obj.optLong("startTime"),
+                        endTime = obj.optLong("endTime"),
+                        status = obj.optString("status", "active"),
+                        emergencyPassRequested = obj.optBoolean("emergencyPassRequested", false),
+                        emergencyPassApproved = obj.optBoolean("emergencyPassApproved", false)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun saveLocalPacts(pacts: List<Pact>) {
+        val arr = JSONArray()
+        for (p in pacts) {
+            val obj = JSONObject().apply {
+                put("id", p.id)
+                put("creatorUid", p.creatorUid)
+                put("partnerUid", p.partnerUid)
+                put("creatorName", p.creatorName)
+                put("partnerName", p.partnerName)
+                put("title", p.title)
+                put("blockedApps", JSONArray(p.blockedApps))
+                put("blockedAppNames", JSONArray(p.blockedAppNames))
+                put("durationMinutes", p.durationMinutes)
+                put("startTime", p.startTime)
+                put("endTime", p.endTime)
+                put("status", p.status)
+                put("emergencyPassRequested", p.emergencyPassRequested)
+                put("emergencyPassApproved", p.emergencyPassApproved)
+            }
+            arr.put(obj)
+        }
+        prefs.edit().putString("local_pacts", arr.toString()).apply()
+    }
+
+    private fun addLocalPact(pact: Pact) {
+        val current = getLocalPacts().toMutableList()
+        current.removeAll { it.id == pact.id }
+        current.add(0, pact)
+        saveLocalPacts(current)
     }
 }

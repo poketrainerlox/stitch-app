@@ -1,10 +1,12 @@
 package com.stitch.app.ui.screens.auth
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.LockClock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,7 +63,7 @@ fun LoginScreen(
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -91,7 +93,7 @@ fun LoginScreen(
                     color = StitchTextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedTextField(
                     value = email,
@@ -138,6 +140,30 @@ fun LoginScreen(
                     } else {
                         Text("Sign In", color = StitchDarkBg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
+                }
+
+                // Quick Guest / Offline Entry Button
+                OutlinedButton(
+                    onClick = { viewModel.continueAsGuest() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, StitchSecondary.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Bolt,
+                        contentDescription = null,
+                        tint = StitchSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Instant Demo / Offline Mode",
+                        color = StitchSecondary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
                 }
 
                 TextButton(

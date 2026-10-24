@@ -20,7 +20,6 @@ import com.stitch.app.ui.navigation.StitchNavGraph
 import com.stitch.app.ui.theme.StitchDarkBg
 import com.stitch.app.ui.theme.StitchTheme
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -44,8 +43,7 @@ class MainActivity : ComponentActivity() {
         // Start background vigilance monitoring service
         UsageTrackingService.startService(this)
 
-        val currentUser = authRepository.currentFirebaseUser
-        val startDestination = if (currentUser != null) Screen.Home.route else Screen.Login.route
+        val startDestination = if (authRepository.isLoggedIn) Screen.Home.route else Screen.Login.route
 
         handleDeepLink(intent)
 
@@ -81,12 +79,7 @@ class MainActivity : ComponentActivity() {
         val uri = intent?.data ?: return
         val code = uri.getQueryParameter("code")
         if (!code.isNullOrBlank()) {
-            // If logged in, auto add or navigate to add friend
-            val currentUid = authRepository.currentFirebaseUser?.uid
-            if (currentUid != null) {
-                // Background coroutine to add friend
-                android.widget.Toast.makeText(this, "Connecting with invite code: $code", android.widget.Toast.LENGTH_LONG).show()
-            }
+            android.widget.Toast.makeText(this, "Focus invite code: $code", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 }

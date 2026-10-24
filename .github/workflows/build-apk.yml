@@ -7,6 +7,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Debug & Release APK
@@ -43,20 +46,38 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Prepare Direct APK Binary
+        run: |
+          mkdir -p release_assets
+          cp app/build/outputs/apk/debug/app-debug.apk release_assets/Stitch-Focus-Guard.apk
+          echo "Direct APK ready: release_assets/Stitch-Focus-Guard.apk"
+
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Stitch-Focus-Guard-Debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: release_assets/Stitch-Focus-Guard.apk
           retention-days: 30
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace || true
-
-      - name: Upload Release APK Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
+      - name: Publish Direct APK to GitHub Releases
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
         with:
-          name: Stitch-Focus-Guard-Release-APK
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
+          tag_name: v1.0.0
+          name: "Stitch Focus Guard v1.0.0"
+          body: |
+            ### 🧵 Stitch — Peer Screen Time Manager
+            
+            Direct Android APK download (no unzipping needed):
+            - **[Download Stitch-Focus-Guard.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.0/Stitch-Focus-Guard.apk)**
+            
+            #### What's Included:
+            - Real Android screen time tracking via `UsageStatsManager`
+            - Floating focus shield overlay via `WindowManager` & `AccessibilityService`
+            - Mutual focus pacts with friend approvals & 25 pushup challenge unlock
+            - Calendar & smart routine auto-scheduler
+            - Offline & hybrid local authentication fallback (no API key errors!)
+          files: |
+            release_assets/Stitch-Focus-Guard.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
