@@ -1,0 +1,5 @@
+<resources>
+    <color name="stitch_bg">#121418</color>
+    <color name="stitch_surface">#1A1D23</color>
+    <color name="stitch_primary">#6EC6FF</color>
+</resources>

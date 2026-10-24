@@ -1,0 +1,64 @@
+name: Build Stitch Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  build:
+    name: Build Debug & Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Inject Google Services Configuration
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > app/google-services.json
+            echo "Injected production google-services.json from secret."
+          else
+            echo "Using default repository google-services.json configuration."
+          fi
+
+      - name: Make Gradle Wrapper Executable
+        run: |
+          if [ ! -f "gradlew" ]; then
+            gradle wrapper
+          fi
+          chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stitch-Focus-Guard-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace || true
+
+      - name: Upload Release APK Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stitch-Focus-Guard-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30

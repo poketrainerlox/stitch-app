@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Stitch</string>
+    <string name="accessibility_service_description">Stitch uses accessibility to detect when blocked apps are opened and displays your peer focus accountability screen.</string>
+</resources>

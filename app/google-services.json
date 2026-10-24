@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "100000000000",
+    "project_id": "stitch-peer-focus",
+    "storage_bucket": "stitch-peer-focus.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:100000000000:android:aaaaaaaaaaaaaaaaaaaaaa",
+        "android_client_info": {
+          "package_name": "com.stitch.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-mock_api_key_for_build_purposes"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:100000000000:android:bbbbbbbbbbbbbbbbbbbbbb",
+        "android_client_info": {
+          "package_name": "com.stitch.app.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-mock_api_key_for_build_purposes"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
